@@ -25,7 +25,10 @@ infra/app.bicep          Container App (ingress, probes de health check e autosc
 infra/modules/           Módulos Bicep usados pelo main.bicep
 azure-pipelines.yml      Pipeline de deploy (infra → build → deploy)
 pipelines/destroy.yml    Pipeline manual que remove todo o ambiente
+docs/passo-a-passo.md    Guia leigo de toda a configuração, do zero ao site no ar
 ```
+
+Para um passo a passo detalhado e sem jargão, com os problemas encontrados e como resolvê-los, veja [docs/passo-a-passo.md](docs/passo-a-passo.md).
 
 ## Pré-requisitos
 
