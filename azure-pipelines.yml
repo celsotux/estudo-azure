@@ -1,0 +1,97 @@
+# Pipeline de deploy: infraestrutura -> build da imagem -> deploy do app
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - app/*
+      - infra/*
+      - azure-pipelines.yml
+
+pr: none
+
+variables:
+  # Nome da service connection (Azure Resource Manager) criada no projeto do Azure DevOps
+  azureServiceConnection: 'sc-estudo-azure'
+  resourceGroup: 'rg-estudo-containerapps'
+  location: 'brazilsouth'
+  prefix: 'estudo'
+  imageName: 'hit-game-app'
+  imageTag: '$(Build.BuildId)'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Infra
+    displayName: '1 - Infraestrutura (rede, ACR, Container Apps Environment)'
+    jobs:
+      - job: Deploy
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Deploy main.bicep'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                az group create --name $(resourceGroup) --location $(location) --output none
+                az deployment group create \
+                  --name infra \
+                  --resource-group $(resourceGroup) \
+                  --template-file infra/main.bicep \
+                  --parameters prefix=$(prefix) \
+                  --output none
+
+  - stage: Build
+    displayName: '2 - Build e push da imagem para o ACR'
+    dependsOn: Infra
+    jobs:
+      - job: Build
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Docker build e push'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                ACR_NAME=$(az deployment group show -g $(resourceGroup) -n infra --query properties.outputs.acrName.value -o tsv)
+                ACR_SERVER=$(az deployment group show -g $(resourceGroup) -n infra --query properties.outputs.acrLoginServer.value -o tsv)
+                az acr login --name "$ACR_NAME"
+                docker build -t "$ACR_SERVER/$(imageName):$(imageTag)" ./app
+                docker push "$ACR_SERVER/$(imageName):$(imageTag)"
+
+  - stage: Deploy
+    displayName: '3 - Deploy do app no Azure Container Apps'
+    dependsOn: Build
+    jobs:
+      - job: Deploy
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Deploy app.bicep'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                output() {
+                  az deployment group show -g $(resourceGroup) -n infra --query "properties.outputs.$1.value" -o tsv
+                }
+                ACR_SERVER=$(output acrLoginServer)
+                URL=$(az deployment group create \
+                  --name app \
+                  --resource-group $(resourceGroup) \
+                  --template-file infra/app.bicep \
+                  --parameters \
+                    appName=$(imageName) \
+                    image="$ACR_SERVER/$(imageName):$(imageTag)" \
+                    acrLoginServer="$ACR_SERVER" \
+                    identityId="$(output identityId)" \
+                    environmentId="$(output environmentId)" \
+                  --query properties.outputs.url.value -o tsv)
+                echo "Aplicação disponível em: $URL"

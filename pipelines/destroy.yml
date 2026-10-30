@@ -1,0 +1,32 @@
+# Pipeline manual que remove todo o ambiente (equivalente ao rollback do projeto AWS)
+trigger: none
+pr: none
+
+parameters:
+  - name: confirmacao
+    displayName: 'Digite o nome do resource group para confirmar a exclusão'
+    type: string
+    default: ''
+
+variables:
+  azureServiceConnection: 'sc-estudo-azure'
+  resourceGroup: 'rg-estudo-containerapps'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: AzureCLI@2
+    displayName: 'Excluir resource group'
+    inputs:
+      azureSubscription: $(azureServiceConnection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -e
+        if [ "${{ parameters.confirmacao }}" != "$(resourceGroup)" ]; then
+          echo "##vso[task.logissue type=error]Confirmação inválida: digite '$(resourceGroup)' para excluir."
+          exit 1
+        fi
+        # Todos os recursos estão no mesmo resource group, então basta excluí-lo
+        az group delete --name $(resourceGroup) --yes
