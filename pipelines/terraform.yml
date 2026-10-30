@@ -1,0 +1,75 @@
+# Pipeline de deploy com Terraform: infraestrutura -> build da imagem -> deploy do app
+# Roda em paralelo à versão Bicep (azure-pipelines.yml), num resource group separado
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - app
+      - terraform
+      - pipelines/terraform.yml
+      - pipelines/templates
+      - pipelines/scripts
+
+pr: none
+
+variables:
+  azureServiceConnection: 'sc-estudo-azure'
+  resourceGroup: 'rg-estudo-containerapps-tf'
+  imageName: 'hit-game-app'
+  imageTag: '$(Build.BuildId)'
+
+pool:
+  vmImage: 'ubuntu-24.04'
+
+stages:
+  - stage: Infra
+    displayName: '1 - Infraestrutura com Terraform (ACR, logs, Container Apps Environment)'
+    jobs:
+      - job: Terraform
+        steps:
+          - template: templates/terraform-step.yml
+            parameters:
+              displayName: 'Terraform plan e apply (terraform/base)'
+              script: |
+                tfstate_bootstrap
+                tf_init terraform/base base.tfstate
+                terraform -chdir=terraform/base plan -input=false -out=tfplan -var "resource_group_name=$(resourceGroup)"
+                terraform -chdir=terraform/base apply -input=false tfplan
+
+  - stage: Build
+    displayName: '2 - Build e push da imagem para o ACR'
+    dependsOn: Infra
+    jobs:
+      - job: Build
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Docker build e push'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                ACR_NAME=$(az acr list -g $(resourceGroup) --query "[0].name" -o tsv)
+                ACR_SERVER=$(az acr list -g $(resourceGroup) --query "[0].loginServer" -o tsv)
+                az acr login --name "$ACR_NAME"
+                docker build -t "$ACR_SERVER/$(imageName):$(imageTag)" ./app
+                docker push "$ACR_SERVER/$(imageName):$(imageTag)"
+
+  - stage: Deploy
+    displayName: '3 - Deploy do app com Terraform'
+    dependsOn: Build
+    jobs:
+      - job: Terraform
+        steps:
+          - template: templates/terraform-step.yml
+            parameters:
+              displayName: 'Terraform plan e apply (terraform/app)'
+              script: |
+                ACR_SERVER=$(az acr list -g $(resourceGroup) --query "[0].loginServer" -o tsv)
+                tf_init terraform/app app.tfstate
+                terraform -chdir=terraform/app plan -input=false -out=tfplan -var "image=$ACR_SERVER/$(imageName):$(imageTag)"
+                terraform -chdir=terraform/app apply -input=false tfplan
+                echo "Aplicação disponível em: $(terraform -chdir=terraform/app output -raw url)"

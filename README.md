@@ -1,30 +1,36 @@
 # Deploy de Aplicação Web com Azure Container Apps, Bicep e Azure DevOps
 
-Versão Azure do projeto [estudo-git](https://github.com/celsotux/estudo-git), que implanta a mesma aplicação de teste na AWS com ECS Fargate, CloudFormation e GitHub Actions. Aqui, toda a infraestrutura é descrita em **Bicep** e o deploy é feito por **Azure Pipelines**.
+Versão Azure do projeto [estudo-git](https://github.com/celsotux/estudo-git), que implanta a mesma aplicação de teste na AWS com ECS Fargate, CloudFormation e GitHub Actions. Aqui o deploy é feito por **Azure Pipelines**, e a mesma infraestrutura existe em duas versões que rodam em paralelo: **Bicep** e **Terraform**.
 
 ## Equivalência com o projeto AWS
 
 | AWS (projeto original)             | Azure (este projeto)                          |
 |------------------------------------|-----------------------------------------------|
-| VPC + sub-redes                    | Virtual Network + sub-rede delegada           |
+| VPC + sub-redes                    | Rede gerenciada pelo Container Apps (sem VNet própria) |
 | AWS Cloud Map                      | Descoberta de serviços nativa do Container Apps Environment |
 | ECS Cluster (Fargate)              | Container Apps Environment (perfil Consumption) |
 | Application Load Balancer          | Ingress HTTPS nativo do Container Apps        |
 | ECS Service + Task Definition      | Container App                                 |
 | Amazon ECR                         | Azure Container Registry                      |
-| CloudFormation                     | Bicep                                         |
-| GitHub Actions (7 workflows)       | Azure Pipelines (2 pipelines)                 |
+| CloudFormation                     | Bicep ou Terraform                            |
+| GitHub Actions (7 workflows)       | Azure Pipelines (4 pipelines: deploy e remoção de cada versão) |
 | Access keys nos secrets            | Service connection com workload identity (sem senha) |
 
 ## Estrutura do repositório
 
 ```
 app/                     Aplicação web estática (HTML/CSS/JS) servida pelo Apache
-infra/main.bicep         Infraestrutura base: rede, ACR, identidade e Container Apps Environment
-infra/app.bicep          Container App (ingress, probes de health check e autoscaling)
+infra/main.bicep         Infraestrutura base em Bicep: ACR, identidade, logs e Container Apps Environment
+infra/app.bicep          Container App em Bicep (ingress, probes de health check e autoscaling)
 infra/modules/           Módulos Bicep usados pelo main.bicep
-azure-pipelines.yml      Pipeline de deploy (infra → build → deploy)
-pipelines/destroy.yml    Pipeline manual que remove todo o ambiente
+terraform/base/          Mesma infraestrutura base, em Terraform
+terraform/app/           Mesmo Container App, em Terraform
+azure-pipelines.yml      Pipeline de deploy da versão Bicep (infra → build → deploy)
+pipelines/destroy.yml    Pipeline manual que remove o ambiente Bicep
+pipelines/terraform.yml  Pipeline de deploy da versão Terraform (infra → build → deploy)
+pipelines/terraform-destroy.yml  Pipeline manual que remove o ambiente Terraform
+pipelines/templates/     Passo reutilizável que roda Terraform com a service connection
+pipelines/scripts/       Instala o Terraform, faz login e prepara o estado remoto
 docs/passo-a-passo.md    Guia leigo de toda a configuração, do zero ao site no ar
 ```
 
@@ -74,8 +80,12 @@ O client ID aparece em **Service connections → sc-estudo-azure → Manage Serv
 
 Em **Pipelines → New pipeline → Azure Repos Git**, selecione o repositório e escolha **Existing Azure Pipelines YAML file**:
 
-- `/azure-pipelines.yml`: deploy
-- `/pipelines/destroy.yml`: remoção do ambiente
+- `/azure-pipelines.yml`: deploy (Bicep)
+- `/pipelines/destroy.yml`: remoção do ambiente (Bicep)
+- `/pipelines/terraform.yml`: deploy (Terraform)
+- `/pipelines/terraform-destroy.yml`: remoção do ambiente (Terraform)
+
+Depois de criar, renomeie cada um em **⋮ → Rename/move** (por exemplo `bicep-deploy`, `bicep-destroy`, `terraform-deploy`, `terraform-destroy`), porque o Azure DevOps dá a todos o nome do repositório.
 
 ## Deploy
 
@@ -83,7 +93,7 @@ O pipeline `azure-pipelines.yml` roda automaticamente a cada push na `main` que 
 
 | Estágio | O que faz |
 |---------|-----------|
-| 1 - Infraestrutura | Cria o resource group e aplica o `main.bicep` (VNet, ACR, identidade, Log Analytics e Container Apps Environment) |
+| 1 - Infraestrutura | Cria o resource group e aplica o `main.bicep` (ACR, identidade, Log Analytics e Container Apps Environment) |
 | 2 - Build | Gera a imagem Docker e envia ao ACR com a tag do número do build |
 | 3 - Deploy | Aplica o `app.bicep` com a nova imagem e mostra a URL pública no log |
 
@@ -91,13 +101,38 @@ Como o Bicep é declarativo, o pipeline pode ser executado quantas vezes for pre
 
 Os valores padrão (resource group `rg-estudo-containerapps`, região `brazilsouth`) ficam na seção `variables` do pipeline.
 
+## Versão Terraform
+
+O pipeline `pipelines/terraform.yml` faz o mesmo deploy, com os mesmos três estágios, mas usando Terraform no resource group `rg-estudo-containerapps-tf`. Ele roda automaticamente a cada push na `main` que altere `app/` ou `terraform/`, então uma mudança no site atualiza as duas versões.
+
+| Estágio | O que faz |
+|---------|-----------|
+| 1 - Infraestrutura | Cria (se faltar) a Storage Account do estado e roda `terraform plan` e `apply` em `terraform/base` |
+| 2 - Build | Gera a imagem Docker e envia ao ACR da versão Terraform |
+| 3 - Deploy | Roda `terraform plan` e `apply` em `terraform/app` com a nova imagem e mostra a URL |
+
+Detalhes:
+
+- **Estado:** fica na Storage Account `sttf<início do ID da assinatura>`, no resource group `rg-estudo-tfstate`, com um arquivo por módulo (`base.tfstate` e `app.tfstate`). O pipeline cria esse armazenamento sozinho na primeira execução, e a remoção não apaga, para o próximo deploy reaproveitar.
+- **Login:** usa a mesma service connection `sc-estudo-azure`, sem senha. O passo em `pipelines/templates/terraform-step.yml` repassa o token de workload identity ao Terraform (`ARM_USE_OIDC`).
+- **Versões:** Terraform 1.16.7 (instalado pelo pipeline) e provider `azurerm` 4.x, travado no `.terraform.lock.hcl`.
+- **Dois módulos:** `base` e `app` têm estados separados, como `main.bicep` e `app.bicep`. O `app` lê as saídas do `base` com `terraform_remote_state`.
+
+Para testar localmente, com `az login` feito:
+
+```bash
+terraform -chdir=terraform/base init -backend=false
+terraform -chdir=terraform/base validate
+```
+
 ## Remoção do ambiente
 
-Execute manualmente o pipeline `destroy.yml` e, no campo de confirmação, digite o nome do resource group (`rg-estudo-containerapps`). Ele exclui o resource group inteiro e todos os recursos dentro dele.
+- **Bicep:** execute manualmente o pipeline `destroy.yml` e, no campo de confirmação, digite `rg-estudo-containerapps`. Ele pede a exclusão do resource group e termina na hora (`--no-wait`). O Azure continua apagando em segundo plano por alguns minutos; confira em **Grupos de recursos**.
+- **Terraform:** execute manualmente o pipeline `terraform-destroy.yml` e digite `rg-estudo-containerapps-tf`. Ele roda `terraform destroy` no app e depois na base. O resource group `rg-estudo-tfstate` com o estado continua existindo e custa centavos por mês.
 
 ## Custos
 
-Com uma réplica mínima, o Container Apps no perfil Consumption fica dentro ou perto da camada gratuita mensal. Os principais custos fixos são o ACR Basic (cerca de US$ 5/mês) e a ingestão de logs no Log Analytics. Lembre-se de rodar o pipeline de remoção ao terminar os estudos.
+Com uma réplica mínima, o Container Apps no perfil Consumption fica dentro ou perto da camada gratuita mensal. Os principais custos fixos são o ACR Basic (cerca de US$ 5/mês por versão, então US$ 10 com as duas no ar) e a ingestão de logs no Log Analytics. Lembre-se de rodar os pipelines de remoção ao terminar os estudos.
 
 ## Executando localmente
 

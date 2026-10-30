@@ -1,0 +1,20 @@
+# Passo AzureCLI@2 já preparado para rodar Terraform com a service connection
+parameters:
+  - name: displayName
+    type: string
+  - name: script
+    type: string
+
+steps:
+  - task: AzureCLI@2
+    displayName: ${{ parameters.displayName }}
+    inputs:
+      azureSubscription: $(azureServiceConnection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      workingDirectory: $(System.DefaultWorkingDirectory)
+      # Expõe servicePrincipalId, tenantId e idToken para o Terraform fazer login
+      addSpnToEnvironment: true
+      inlineScript: |
+        source pipelines/scripts/terraform-env.sh
+        ${{ parameters.script }}

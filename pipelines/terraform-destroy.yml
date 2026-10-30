@@ -1,0 +1,32 @@
+# Pipeline manual que remove o ambiente da versão Terraform (terraform destroy)
+# O resource group do estado (rg-estudo-tfstate) é mantido, para o próximo deploy reaproveitar
+trigger: none
+pr: none
+
+parameters:
+  - name: confirmacao
+    displayName: 'Digite o nome do resource group para confirmar a exclusão'
+    type: string
+    default: ''
+
+variables:
+  azureServiceConnection: 'sc-estudo-azure'
+  resourceGroup: 'rg-estudo-containerapps-tf'
+
+pool:
+  vmImage: 'ubuntu-24.04'
+
+steps:
+  - template: templates/terraform-step.yml
+    parameters:
+      displayName: 'Terraform destroy (app, depois base)'
+      script: |
+        if [ "${{ parameters.confirmacao }}" != "$(resourceGroup)" ]; then
+          echo "##vso[task.logissue type=error]Confirmação inválida: digite '$(resourceGroup)' para excluir."
+          exit 1
+        fi
+        # O app depende da base, então sai primeiro. A imagem não importa para o destroy.
+        tf_init terraform/app app.tfstate
+        terraform -chdir=terraform/app destroy -input=false -auto-approve -var "image=destroy"
+        tf_init terraform/base base.tfstate
+        terraform -chdir=terraform/base destroy -input=false -auto-approve -var "resource_group_name=$(resourceGroup)"
