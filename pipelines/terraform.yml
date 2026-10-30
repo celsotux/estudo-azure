@@ -11,6 +11,8 @@ trigger:
       - pipelines/terraform.yml
       - pipelines/templates
       - pipelines/scripts
+    exclude:
+      - terraform/README.md
 
 pr: none
 

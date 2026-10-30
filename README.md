@@ -103,6 +103,8 @@ Os valores padrão (resource group `rg-estudo-containerapps`, região `brazilsou
 
 ## Versão Terraform
 
+Explicação completa, com diagrama, em [terraform/README.md](terraform/README.md).
+
 O pipeline `pipelines/terraform.yml` faz o mesmo deploy, com os mesmos três estágios, mas usando Terraform no resource group `rg-estudo-containerapps-tf`. Ele roda automaticamente a cada push na `main` que altere `app/` ou `terraform/`, então uma mudança no site atualiza as duas versões.
 
 | Estágio | O que faz |
