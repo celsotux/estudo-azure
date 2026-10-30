@@ -1,18 +1,10 @@
-// Infraestrutura base: rede, registro de imagens e Container Apps Environment
+// Infraestrutura base: registro de imagens e Container Apps Environment
 targetScope = 'resourceGroup'
 
 @description('Prefixo usado no nome dos recursos')
 param prefix string = 'estudo'
 
 param location string = resourceGroup().location
-
-module network 'modules/network.bicep' = {
-  name: 'network'
-  params: {
-    location: location
-    prefix: prefix
-  }
-}
 
 module registry 'modules/registry.bicep' = {
   name: 'registry'
@@ -27,7 +19,6 @@ module environment 'modules/environment.bicep' = {
   params: {
     location: location
     prefix: prefix
-    infrastructureSubnetId: network.outputs.appsSubnetId
   }
 }
 

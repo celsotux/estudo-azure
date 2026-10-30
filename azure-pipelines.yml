@@ -5,8 +5,8 @@ trigger:
       - main
   paths:
     include:
-      - app/*
-      - infra/*
+      - app
+      - infra
       - azure-pipelines.yml
 
 pr: none
@@ -21,11 +21,11 @@ variables:
   imageTag: '$(Build.BuildId)'
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: 'ubuntu-24.04'
 
 stages:
   - stage: Infra
-    displayName: '1 - Infraestrutura (rede, ACR, Container Apps Environment)'
+    displayName: '1 - Infraestrutura (ACR, logs, Container Apps Environment)'
     jobs:
       - job: Deploy
         steps:
