@@ -4,14 +4,17 @@ set -euo pipefail
 
 TF_VERSION="1.16.7"
 
-# Instala a versão fixa do Terraform, se o agente não tiver
-if ! terraform version 2>/dev/null | grep -q "v${TF_VERSION}"; then
+# Instala a versão fixa do Terraform, se o agente não tiver.
+# A saída vai para uma variável: "terraform version | head" pode morrer com SIGPIPE (exit 141) por causa do pipefail
+TF_ATUAL="$(terraform version 2>/dev/null || true)"
+if [[ "$TF_ATUAL" != *"v${TF_VERSION}"* ]]; then
   curl -sSfLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
   mkdir -p "$HOME/.tfbin"
   unzip -oq /tmp/terraform.zip -d "$HOME/.tfbin"
   export PATH="$HOME/.tfbin:$PATH"
+  TF_ATUAL="$(terraform version)"
 fi
-terraform version | head -1
+echo "${TF_ATUAL%%$'\n'*}"
 
 # Login do Terraform com a mesma service connection (workload identity, sem senha)
 export ARM_CLIENT_ID="$servicePrincipalId"
