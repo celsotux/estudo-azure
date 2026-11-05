@@ -56,13 +56,14 @@ Não é preciso instalar a ferramenta de linha de comando do Azure (`az`): os co
 
 ## Passo 1 — Preparar a assinatura do Azure
 
-O Azure vem com vários serviços "desligados". É preciso ligar (registrar) os três que o projeto usa, senão o deploy falha.
+O Azure vem com vários serviços "desligados". É preciso ligar (registrar) os que o projeto usa, senão o deploy falha.
 
 | Serviço (resource provider) | Para que serve |
 | --- | --- |
 | `Microsoft.App` | Container Apps, onde o site roda |
 | `Microsoft.ContainerRegistry` | O "depósito" das imagens Docker |
 | `Microsoft.OperationalInsights` | Os logs do site |
+| `Microsoft.Storage` | Onde o Terraform guarda o estado (só na versão Terraform; o pipeline registra sozinho) |
 
 **Como registrar pelo portal:**
 
@@ -78,10 +79,10 @@ O Azure vem com vários serviços "desligados". É preciso ligar (registrar) os 
 3. Cole o comando (no Cloud Shell, colar é **Ctrl+Shift+V**):
 
 ```bash
-for p in Microsoft.App Microsoft.ContainerRegistry Microsoft.OperationalInsights; do echo "$p: $(az provider show -n $p --query registrationState -o tsv)"; done
+for p in Microsoft.App Microsoft.ContainerRegistry Microsoft.OperationalInsights Microsoft.Storage; do echo "$p: $(az provider show -n $p --query registrationState -o tsv)"; done
 ```
 
-Os três devem aparecer como `Registered`.
+Todos devem aparecer como `Registered`.
 
 ## Passo 2 — Criar o projeto no Azure DevOps e enviar o código
 
@@ -260,6 +261,7 @@ git reset --soft HEAD~1
 | `Authentication failed` para o Azure DevOps | Mesmo motivo acima | Mesma solução acima |
 | Botão **Sync Changes 1** sem ter alterado nada | Um commit vazio foi criado sem querer | `git reset --soft HEAD~1` e clicar em ↻ no Source Control |
 | Token do GitHub apareceu em print | O token fica visível logo depois de gerado | Apagar o token (Delete) depois de usar |
+| `(SubscriptionNotFound) Subscription ... was not found` no pipeline do Terraform | O serviço `Microsoft.Storage` não estava registrado; o Azure dá essa mensagem enganosa | `az provider register --namespace Microsoft.Storage` (o pipeline agora faz isso sozinho) |
 | Etapa 1 do pipeline "parada" por 9 minutos | Criar o ambiente do Container Apps demora | Esperar; só investigar se passar de 25 minutos |
 
 ## Custos e como desligar tudo

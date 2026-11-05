@@ -36,6 +36,8 @@ export TF_IN_AUTOMATION=true
 
 # Cria a Storage Account do estado, se ainda não existir
 tfstate_bootstrap() {
+  # Sem o provider registrado, o Azure responde "SubscriptionNotFound" ao criar a Storage Account
+  az provider register --namespace Microsoft.Storage --wait --output none
   az group create --name "$TFSTATE_RG" --location "$TFSTATE_LOCATION" --output none
   az storage account create \
     --name "$TFSTATE_ACCOUNT" \

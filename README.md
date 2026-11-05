@@ -41,11 +41,12 @@ Para um passo a passo detalhado e sem jargão, com os problemas encontrados e co
 1. Assinatura Azure.
 2. Organização e projeto no [Azure DevOps](https://dev.azure.com).
 3. **Agentes hospedados liberados:** organizações novas não podem usar os agentes gratuitos da Microsoft até pedir a liberação no [formulário de paralelismo](https://aka.ms/azpipelines-parallelism-request). A aprovação pode levar alguns dias.
-4. Os resource providers `Microsoft.App`, `Microsoft.ContainerRegistry` e `Microsoft.OperationalInsights` registrados na assinatura:
+4. Os resource providers `Microsoft.App`, `Microsoft.ContainerRegistry` e `Microsoft.OperationalInsights` registrados na assinatura. A versão Terraform também usa `Microsoft.Storage`, para guardar o estado; o pipeline registra esse sozinho, mas pode ser feito à mão:
    ```bash
    az provider register --namespace Microsoft.App
    az provider register --namespace Microsoft.ContainerRegistry
    az provider register --namespace Microsoft.OperationalInsights
+   az provider register --namespace Microsoft.Storage
    ```
 
 ## Configuração
